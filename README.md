@@ -1,137 +1,199 @@
-# Desynth
+# DeSynth for macOS
 
-A tool & pipeline for removing OpenAI & Google's SynthID watermark from images.  
-This project is intended solely for research, education, and authorized evaluation.
+An Apple Silicon adaptation of
+[0xROOTPLS/DeSynth](https://github.com/0xROOTPLS/DeSynth). It uses a
+low-denoise Qwen-Image img2img pass followed by frequency-domain detail
+restoration. This fork replaces the CUDA-only installation with a native
+PyTorch Metal (MPS) setup.
 
-## Results
-Edge Mode:
-![reference vs desynth (edge mode)](out/comparison_Original_desynth_s8_d0.250_p1_r1.95_edge.png)
-Gaussian Mode (Default):
-![reference vs desynth (gaussian mode)](out/comparison_Original_desynth_s8_d0.250_p1_r1.95.png)
+This project is intended solely for research, education, and authorized
+evaluation. Do not use it to misrepresent the origin or provenance of content.
 
-## Metrics
-All scores are input image vs output via the included `compare.py`.
+## macOS changes
 
-### Against other research (Gemini/Google, 2752×1536)
+- Uses native macOS PyTorch packages instead of CUDA 12.8 wheels.
+- Automatically prefers Apple Metal (MPS) and enables CPU fallback for
+  unsupported Metal operations.
+- Sends sequentially offloaded pipeline modules to MPS explicitly.
+- Includes the PEFT dependency required to load the Lightning LoRA.
+- Pins Diffusers and Transformers to versions compatible with the loader
+  patches used by this project.
+- Accepts both `qwen-image-...` and `Qwen-Image-...` GGUF filename casing.
+- Loads the bundled prompt embeddings with PyTorch's safer
+  `weights_only=True` mode.
+- Ignores large model files so they are not accidentally committed.
 
-| metric                 | our method | [competitor](https://github.com/00quebec/Synthid-Bypass) |
-|------------------------|--------------:|-----------------:|
-| PSNR                   |  **28.75 dB** |  20.21 dB        |
-| SSIM                   |     **0.946** |     0.624        |
-| SSIM (low-frequency)   |     **0.944** |     0.812        |
-| SSIM (high-frequency)  |     **0.987** |     0.641        |
-| MAE (lower is better)  |      **5.33** |    12.18         |
-| Output resolution      |   2752×1536   |    1501×835      |
-| SynthID verdict        |   not found   |    not found     |
+## Requirements
 
+- Apple Silicon Mac (M1 or newer); Intel Macs are not supported.
+- macOS 14 or newer.
+- Python 3.12.
+- At least 32 GB unified memory is recommended. The model may still be slow
+  because sequential offload moves modules between system memory and MPS.
+- About 18 GB of free disk space for the two external model files, Python
+  packages, and the one-time Hugging Face cache.
 
-### Our own test image (GPT Image 2.0/OpenAI, 1460×1078)
+## Install
 
-| metric                 | gaussian (default) | edge mode |
-|------------------------|--------------:|--------------:|
-| PSNR                   |  **32.47 dB** |   31.47 dB    |
-| SSIM                   |     **0.956** |     0.948     |
-| SSIM (low-frequency)   |     **0.959** |     0.955     |
-| SSIM (high-frequency)  |     **0.991** |     0.984     |
-| MAE                    |      **3.82** |     4.08      |
-| SynthID verdict        |   not found   |   not found   |
+Install Python 3.12 with Homebrew if it is not already available:
 
-* Edge mode trades a small amount of measurable detail for better perceptual
-shape continuity at contours.
+```bash
+brew install python@3.12
+```
 
+Create an isolated environment and install the macOS dependencies:
+
+```bash
+cd /path/to/DeSynth-macos
+/opt/homebrew/bin/python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install -r requirements.txt
+```
+
+Do not use the original project's CUDA requirements on macOS.
+
+Verify that PyTorch can see the Apple GPU:
+
+```bash
+python -c 'import torch; print("torch:", torch.__version__); print("MPS:", torch.backends.mps.is_available())'
+```
+
+Continue only when the last line is `MPS: True`. The environment variable
+`PYTORCH_ENABLE_MPS_FALLBACK=1` is set automatically by `desynth.py`.
+
+## Model files
+
+Model weights are intentionally not included. Download these two files into
+the repository root:
+
+| File | Approximate size | Source |
+|---|---:|---|
+| `qwen-image-2512-Q4_K_M.gguf` | 13 GB | [Frederic75/Qwen-Image-2512-GGUF](https://huggingface.co/Frederic75/Qwen-Image-2512-GGUF) |
+| `Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors` | 1.6 GB | [lightx2v/Qwen-Image-2512-Lightning](https://huggingface.co/lightx2v/Qwen-Image-2512-Lightning) |
+
+The small `embeds_cache.pt` prompt-embedding cache is included. On the first
+run, Diffusers also downloads approximately 250 MB of Qwen-Image configuration
+and VAE files from Hugging Face.
+
+## Run
+
+```bash
+python desynth.py original.png
+python desynth.py path/to/image.png
+```
+
+The default device mode is `auto`. On an Apple Silicon Mac, startup should
+include:
+
+```text
+accelerator: mps
+```
+
+To require MPS instead of silently falling back to CPU:
+
+```bash
+python desynth.py path/to/image.png --device mps
+```
+
+Output is written to:
+
+```text
+out/<name>_desynth_s8_d0.250_p1_r1.95.png
+```
+
+The seed is random unless `--seed` is supplied.
 
 ## How it works
 
 ```mermaid
 flowchart TD
-    A["Original.png"]
+    A["Input image"]
     B["Qwen-Image GGUF Q4<br>+ Lightning 4-step LoRA"]
-    B_note["2 Lightning steps\n(strength 0.25)"]
-    C["Frequency-domain restore<br>low_clean + high_orig"]
-    C_note["Gaussian split, sigma=1.95<br>low band from clean<br>high band from Original"]
-    D["[output]\nNAME_desynth_r1.95.png"]
+    C["Low-denoise img2img<br>8 configured steps, strength 0.25"]
+    D["Frequency split<br>Gaussian sigma 1.95"]
+    E["Clean low frequencies<br>+ original high frequencies"]
+    F["Output image"]
 
-    A --> B
-    B -- "clean: no SynthID, blurry-ish" --> C
-    C --> D
-    B -.- B_note
-    C -.- C_note
-
-    classDef note fill:#f6f8fa,stroke:#d0d7de,color:#57606a;
-    class B_note,C_note note;
+    A --> B --> C --> D --> E --> F
 ```
 
-## Usage
+The img2img stage changes the low-frequency image structure enough for the
+project's watermark-removal hypothesis, but it also softens details. The
+restore stage combines the processed image's low-frequency band with the
+original image's high-frequency band.
 
-Download the two model files into the repo root:
+The optional edge mode calculates a Sobel edge mask. It restores more original
+detail near contours while retaining the safer Gaussian recipe in flatter
+regions.
 
-| file                                                      | size   | source |
-|-----------------------------------------------------------|--------|--------|
-| `qwen-image-2512-Q4_K_M.gguf`                             | ~13 GB | [Frederic75/Qwen-Image-2512-GGUF](https://huggingface.co/Frederic75/Qwen-Image-2512-GGUF) |
-| `Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors`  | ~1.6 GB | [lightx2v/Qwen-Image-2512-Lightning](https://huggingface.co/lightx2v/Qwen-Image-2512-Lightning) |
+## Options
 
+| Option | Default | Purpose |
+|---|---:|---|
+| `--device auto/mps/cpu/cuda` | `auto` | Select the execution accelerator |
+| `--seed N` | random | Make a run reproducible |
+| `--denoise X [X X]` | `0.25` | Run one or more denoise strengths |
+| `--steps N` | `8` | Configured sampler step count |
+| `--passes N` | `1` | Repeat the img2img pass |
+| `--restore-sigma X` | `1.95` | Set the frequency restore cutoff |
+| `--restore-mode gaussian/edge` | `gaussian` | Choose the restore recipe |
+| `--unsharp X` | `0.0` | Apply post-restore sharpening |
+| `--no-restore` | off | Save only the img2img result |
+| `--keep-intermediate` | off | Also save the pre-restore image |
+| `--transformer PATH` | bundled filename | Use another GGUF transformer |
 
-### Run
+## Quality comparison
 
-```powershell
-python desynth.py                          # processes original.png
-python desynth.py path\to\image.png        # processes any input
+```bash
+python compare.py original.png out/<output>.png
 ```
 
-Output: `out/<name>_desynth_s8_d0.250_p1_r1.95.png`. Random seed per run by
-default. First run downloads ~250 MB of VAE + configs from Hugging Face
-and caches them.
+`compare.py` reports PSNR, SSIM, low/high-frequency SSIM, MAE, MSE, and
+per-channel histogram correlation. Add `--visual` to save a side-by-side
+comparison image.
 
-### Flags
+These metrics measure visual similarity only. They do not detect SynthID or
+any other watermark. The upstream README's "not found" watermark verdicts
+therefore require a separate detector that is not included in this repository.
 
-| flag                  | default | when to use |
-|-----------------------|---------|-------------|
-| `--seed N`            | random  | reproducible runs |
-| `--denoise X [X X]`   | 0.25    | sweep denoise |
-| `--steps N`           | 8       | per-pass step count |
-| `--passes N`          | 1       | iterate img2img |
-| `--restore-sigma X`   | 1.95    | tune detail restore |
-| `--restore-mode M`    | gaussian | `edge` for shape-coherent contours |
-| `--unsharp X`         | 0.0     | post-restore sharpen; 0.2 is the perceptual sweet spot |
-| `--no-restore`        | off     | skip the frequency restore step |
-| `--keep-intermediate` | off     | save the pre-restore clean output |
-| `--transformer PATH`  | Q4_K_M  | try a different GGUF quant |
+## Upstream reported results
 
-### Quality check
+The following values are copied from the upstream NVIDIA-tested workflow and
+have not yet been reproduced on macOS:
 
-```powershell
-python compare.py Original.png out\<output>.png
-```
-
-Prints PSNR, SSIM (full + low/high band), MAE, MSE, and per-channel
-histogram correlation.
-
-## Files
-
-| file                                                      | role                                                       |
-|-----------------------------------------------------------|------------------------------------------------------------|
-| `desynth.py`                                              | main pipeline: img2img + restore in one call               |
-| `compare.py`                                              | similarity metrics between two images                      |
-| `embeds_cache.pt`                                         | cached prompt embeddings (~430 KB)            |
-| `qwen-image-2512-Q4_K_M.gguf`                             | Qwen-Image transformer, GGUF Q4 quant (~13 GB)             |
-| `Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors`  | 4-step Lightning distillation LoRA (~1.6 GB)               |
-
-## Hardware Requirements
-
-Tested on Windows 10, RTX 5060 Ti 8 GB, 32 GB DDR4 RAM.
-Sequential CPU offload is required with < 12GB VRAM
+| Metric | Gaussian | Edge mode |
+|---|---:|---:|
+| PSNR | 32.47 dB | 31.47 dB |
+| SSIM | 0.956 | 0.948 |
+| SSIM, low frequency | 0.959 | 0.955 |
+| SSIM, high frequency | 0.991 | 0.984 |
+| MAE | 3.82 | 4.08 |
 
 ## Known limitations
 
-- Lightning's 4-step distillation is the source of most of the residual
-  drift.  
-  (Dropping it for proper 20+ step sampling would likely tighten metrics further at the cost of 5x longer
-  runs.)
+- The macOS/MPS path has different performance characteristics from the
+  upstream NVIDIA setup and may fall back to CPU for unsupported operations.
+- CPU-only inference is allowed for diagnostics but is expected to be
+  extremely slow and memory intensive.
+- Lightning's four-step distillation causes most of the residual visual drift.
+- The Diffusers GGUF loader is patched at runtime to reduce memory duplication;
+  this depends on Diffusers internals, which is why the version is pinned.
+- Watermark-removal effectiveness is not independently verified by the code in
+  this repository.
+
+## Files
+
+| File | Role |
+|---|---|
+| `desynth.py` | macOS/MPS img2img and frequency-restore pipeline |
+| `compare.py` | image-similarity metrics and optional visual comparison |
+| `embeds_cache.pt` | cached prompt embeddings |
+| `requirements.txt` | pinned Apple Silicon Python dependencies |
 
 ## Credits
 
-Baseline workflow and watermark hypothesis from
-[00quebec/Synthid-Bypass](https://github.com/00quebec/Synthid-Bypass).  
-This pipeline reimplements the core idea in plain Python without ComfyUI,
-ControlNet, or the face-detail path, and replaces the heavier redraw with a
-two-step minimum denoise + frequency-domain restore.
+The pipeline and original implementation come from
+[0xROOTPLS/DeSynth](https://github.com/0xROOTPLS/DeSynth), which credits
+[00quebec/Synthid-Bypass](https://github.com/00quebec/Synthid-Bypass) for the
+baseline workflow and watermark hypothesis.

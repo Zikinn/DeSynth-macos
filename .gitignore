@@ -1,0 +1,9 @@
+.DS_Store
+.venv/
+__pycache__/
+*.py[cod]
+
+# Large model weights are downloaded separately and must not be committed.
+*.gguf
+*.safetensors
+*.ckpt

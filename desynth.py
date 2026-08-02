@@ -16,9 +16,15 @@ warnings.filterwarnings("ignore", message=".*pooled_projection_dim.*")
 warnings.filterwarnings("ignore", message=".*classifier-free guidance is not enabled.*")
 warnings.filterwarnings("ignore", message=".*unauthenticated requests.*")
 warnings.filterwarnings("ignore", message=".*HF_TOKEN.*")
+warnings.filterwarnings(
+    "ignore",
+    message="User provided device_type of 'cuda', but CUDA is not available.*",
+)
 os.environ.setdefault("TRANSFORMERS_NO_ADVISORY_WARNINGS", "1")
 os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
 os.environ.setdefault("HF_HUB_DISABLE_IMPLICIT_TOKEN", "1")
+# Let unsupported Metal operations fall back to CPU instead of aborting.
+os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
 logging.getLogger("diffusers").setLevel(logging.ERROR)
 try:
@@ -86,10 +92,14 @@ from diffusers import (
 from diffusers.utils import load_image
 
 ROOT = Path(__file__).parent
-DEFAULT_INPUT = ROOT / "Original.png"
+DEFAULT_INPUT = ROOT / "original.png"
 OUT_DIR = ROOT / "out"
 
-GGUF_TRANSFORMER = ROOT / "qwen-image-2512-Q4_K_M.gguf"
+_GGUF_CANDIDATES = (
+    ROOT / "qwen-image-2512-Q4_K_M.gguf",
+    ROOT / "Qwen-Image-2512-Q4_K_M.gguf",
+)
+GGUF_TRANSFORMER = next((p for p in _GGUF_CANDIDATES if p.exists()), _GGUF_CANDIDATES[0])
 LIGHTNING_LORA = ROOT / "Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors"
 EMBEDS_CACHE = ROOT / "embeds_cache.pt"
 
@@ -107,12 +117,43 @@ DEFAULT_DENOISE = 0.25
 DEFAULT_RESTORE_SIGMA = 1.95
 
 
-def build_pipeline(transformer_path: Path = GGUF_TRANSFORMER) -> QwenImageImg2ImgPipeline:
+def _resolve_device(requested: str) -> str:
+    if requested == "auto":
+        if torch.backends.mps.is_available():
+            return "mps"
+        if torch.cuda.is_available():
+            return "cuda"
+        return "cpu"
+    if requested == "mps" and not torch.backends.mps.is_available():
+        raise RuntimeError(
+            "MPS was requested but is unavailable. On Apple Silicon, use a native "
+            "arm64 Python/PyTorch build and macOS 14 or newer."
+        )
+    if requested == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("CUDA was requested but is unavailable.")
+    return requested
+
+
+def build_pipeline(
+    transformer_path: Path = GGUF_TRANSFORMER,
+    *,
+    device: str = "auto",
+) -> QwenImageImg2ImgPipeline:
     for p in (transformer_path, LIGHTNING_LORA, EMBEDS_CACHE):
         if not p.exists():
             raise FileNotFoundError(
-                f"{p}\n(Run `python precompute_embeds.py` first if embeds_cache.pt is missing.)"
+                f"{p}\nDownload the model files listed in README.md. "
+                "embeds_cache.pt is included in the repository."
             )
+
+    device = _resolve_device(device)
+    if device == "cpu":
+        print(
+            "warning: no MPS/CUDA accelerator detected; CPU inference can be "
+            "extremely slow and may use substantial memory"
+        )
+    else:
+        print(f"accelerator: {device}")
 
     dtype = torch.bfloat16
 
@@ -155,8 +196,10 @@ def build_pipeline(transformer_path: Path = GGUF_TRANSFORMER) -> QwenImageImg2Im
     pipe.load_lora_weights(str(LIGHTNING_LORA), adapter_name="lightning")
     pipe.set_adapters(["lightning"], adapter_weights=[0.8])
 
-    # Sequential offload is the only mode that fits a 10GB Q4 transformer in 8GB.
-    pipe.enable_sequential_cpu_offload()
+    # Sequential offload keeps the large transformer in system memory and moves
+    # submodules to Metal/CUDA only while they are executing.
+    if device != "cpu":
+        pipe.enable_sequential_cpu_offload(device=device)
     pipe.vae.enable_tiling()
 
     return pipe
@@ -251,6 +294,12 @@ def main() -> None:
     parser.add_argument("--no-restore", dest="restore", action="store_false", help="skip frequency restore")
     parser.add_argument("--keep-intermediate", action="store_true", help="also save the pre-restore output")
     parser.add_argument("--transformer", type=Path, default=GGUF_TRANSFORMER, help="alt GGUF transformer path")
+    parser.add_argument(
+        "--device",
+        choices=["auto", "mps", "cpu", "cuda"],
+        default="auto",
+        help="accelerator; auto prefers Apple MPS, then CUDA, then CPU",
+    )
     parser.set_defaults(restore=True)
     args = parser.parse_args()
 
@@ -268,8 +317,8 @@ def main() -> None:
     image = load_image(str(input_path))
     print(f"input: {input_path.name}  size={image.size}")
 
-    pipe = build_pipeline(transformer_path=args.transformer)
-    embeds = torch.load(EMBEDS_CACHE, map_location="cpu", weights_only=False)
+    pipe = build_pipeline(transformer_path=args.transformer, device=args.device)
+    embeds = torch.load(EMBEDS_CACHE, map_location="cpu", weights_only=True)
     print(f"embeds: pos={tuple(embeds['prompt_embeds'].shape)} neg={tuple(embeds['negative_prompt_embeds'].shape)}")
 
     OUT_DIR.mkdir(exist_ok=True)
