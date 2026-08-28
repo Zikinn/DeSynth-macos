@@ -3,7 +3,15 @@
 __pycache__/
 *.py[cod]
 
+# priv
+*.png
+*.PNG
+*.jpeg
+*.jpg
+
+
 # Large model weights are downloaded separately and must not be committed.
 *.gguf
 *.safetensors
 *.ckpt
+*.priv.md
