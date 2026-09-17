@@ -1,0 +1,860 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DeSynth Local Studio</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #111210;
+      --surface: #1a1c19;
+      --surface-2: #20231f;
+      --surface-3: #292d27;
+      --line: #353a32;
+      --line-strong: #4a5145;
+      --text: #f2f1ea;
+      --muted: #a6ab9f;
+      --subtle: #90978b;
+      --accent: #d7ff62;
+      --accent-ink: #172000;
+      --good: #8ee6b0;
+      --warn: #ffcf70;
+      --bad: #ff8d85;
+      --radius: 18px;
+      --shadow: 0 24px 70px rgb(0 0 0 / 0.28);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+
+    body {
+      margin: 0;
+      min-width: 760px;
+      min-height: 100vh;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 8% -10%, rgb(215 255 98 / 0.08), transparent 26rem),
+        var(--bg);
+    }
+
+    button, input, select { font: inherit; }
+    button { color: inherit; }
+
+    button:focus-visible,
+    input:focus-visible,
+    select:focus-visible,
+    summary:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 3px;
+    }
+
+    .app-shell {
+      width: min(1240px, 100%);
+      margin: 0 auto;
+      padding: 22px 24px 38px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      margin-bottom: 22px;
+    }
+
+    .brand { display: flex; align-items: center; gap: 13px; }
+
+    .brand-mark {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      color: var(--accent);
+      border: 1px solid var(--line-strong);
+      border-radius: 12px;
+      background: var(--surface);
+      box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.02);
+      font: 700 19px/1 ui-monospace, "SFMono-Regular", Menlo, monospace;
+    }
+
+    h1 { margin: 0; font-size: 17px; letter-spacing: -0.01em; }
+    .brand-copy p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+
+    .top-actions { display: flex; align-items: center; gap: 10px; }
+
+    .status-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 34px;
+      padding: 0 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      background: var(--surface);
+      font-size: 12px;
+    }
+
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--warn);
+      box-shadow: 0 0 0 4px rgb(255 207 112 / 0.08);
+    }
+
+    .status-chip.ready .status-dot { background: var(--good); box-shadow: 0 0 0 4px rgb(142 230 176 / 0.08); }
+    .status-chip.error .status-dot { background: var(--bad); box-shadow: 0 0 0 4px rgb(255 141 133 / 0.08); }
+
+    .quiet-button,
+    .secondary-button,
+    .output-button,
+    .preset-button {
+      border: 1px solid var(--line);
+      background: var(--surface);
+      cursor: pointer;
+      transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+    }
+
+    .quiet-button:hover,
+    .secondary-button:hover,
+    .output-button:hover,
+    .preset-button:hover { border-color: var(--line-strong); background: var(--surface-2); }
+    button:active { transform: translateY(1px); }
+    button:disabled { cursor: not-allowed; opacity: 0.42; transform: none; }
+
+    .quiet-button { min-height: 34px; padding: 0 12px; border-radius: 10px; color: var(--muted); font-size: 12px; }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.75fr);
+      gap: 18px;
+      align-items: stretch;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: linear-gradient(180deg, rgb(255 255 255 / 0.018), transparent 80%), var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .input-card { min-height: 548px; padding: 18px; display: flex; flex-direction: column; }
+    .settings-card { min-height: 548px; padding: 20px; }
+
+    .section-heading {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 15px;
+    }
+
+    h2 { margin: 0; font-size: 14px; letter-spacing: 0.01em; }
+    .eyebrow { color: var(--subtle); font: 600 10px/1 ui-monospace, "SFMono-Regular", Menlo, monospace; letter-spacing: 0.11em; text-transform: uppercase; }
+
+    .picker {
+      position: relative;
+      flex: 1;
+      min-height: 410px;
+      overflow: hidden;
+      border: 1px dashed var(--line-strong);
+      border-radius: 14px;
+      background:
+        linear-gradient(45deg, rgb(255 255 255 / 0.016) 25%, transparent 25%) 0 0 / 18px 18px,
+        linear-gradient(-45deg, rgb(255 255 255 / 0.016) 25%, transparent 25%) 0 0 / 18px 18px,
+        var(--surface-2);
+    }
+
+    .picker-empty {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-content: center;
+      justify-items: center;
+      padding: 36px;
+      text-align: center;
+    }
+
+    .picker-symbol {
+      width: 54px;
+      height: 54px;
+      display: grid;
+      place-items: center;
+      margin-bottom: 17px;
+      border-radius: 17px;
+      color: var(--accent);
+      background: rgb(215 255 98 / 0.08);
+      font: 300 30px/1 ui-monospace, "SFMono-Regular", Menlo, monospace;
+    }
+
+    .picker-empty strong { font-size: 16px; }
+    .picker-empty p { max-width: 340px; margin: 8px 0 18px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+
+    .secondary-button { min-height: 38px; padding: 0 17px; border-radius: 11px; font-weight: 650; font-size: 12px; }
+
+    .preview-wrap { position: absolute; inset: 0; display: none; background: #0b0c0a; }
+    .preview-wrap.visible { display: block; }
+    .preview-wrap img { width: 100%; height: 100%; display: block; object-fit: contain; }
+
+    .preview-meta {
+      position: absolute;
+      left: 12px;
+      right: 12px;
+      bottom: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+      border: 1px solid rgb(255 255 255 / 0.12);
+      border-radius: 11px;
+      background: rgb(16 18 15 / 0.82);
+      backdrop-filter: blur(18px);
+    }
+
+    .preview-copy { min-width: 0; display: flex; align-items: baseline; gap: 9px; }
+    .file-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 650; }
+    .file-facts { flex: none; color: var(--muted); font: 10px/1 ui-monospace, "SFMono-Regular", Menlo, monospace; }
+    .preview-change { flex: none; min-height: 29px; padding: 0 10px; border: 1px solid rgb(255 255 255 / 0.14); border-radius: 8px; color: var(--text); background: rgb(255 255 255 / 0.06); cursor: pointer; font-size: 10px; }
+    .preview-change:hover { background: rgb(255 255 255 / 0.11); }
+
+    .usage-note {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      margin-top: 13px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    .usage-note input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+    .usage-note label { cursor: pointer; }
+
+    .preset-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 20px; }
+    .preset-button { min-height: 44px; padding: 0 12px; border-radius: 11px; color: var(--muted); text-align: left; font-size: 12px; }
+    .preset-button span { display: block; margin-top: 2px; color: var(--subtle); font-size: 10px; }
+    .preset-button.active { color: var(--text); border-color: rgb(215 255 98 / 0.55); background: rgb(215 255 98 / 0.075); }
+
+    .field { margin: 0 0 18px; }
+    .field-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+    .field label, .field-label { font-size: 12px; font-weight: 620; }
+    .field-hint { color: var(--subtle); font-size: 10px; }
+
+    .range-row { display: grid; grid-template-columns: 1fr 74px; gap: 10px; align-items: center; }
+    input[type="range"] { width: 100%; accent-color: var(--accent); }
+
+    input[type="number"],
+    input[type="text"],
+    select {
+      width: 100%;
+      min-height: 38px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      color: var(--text);
+      background: var(--surface-2);
+      padding: 0 10px;
+    }
+
+    .toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 18px; }
+    .toggle-copy strong { display: block; font-size: 12px; }
+    .toggle-copy span { display: block; margin-top: 3px; color: var(--subtle); font-size: 10px; }
+    .switch { position: relative; width: 39px; height: 23px; flex: none; }
+    .switch input { position: absolute; opacity: 0; }
+    .switch-track { position: absolute; inset: 0; border-radius: 999px; background: var(--surface-3); border: 1px solid var(--line); cursor: pointer; transition: 160ms ease; }
+    .switch-track::after { content: ""; position: absolute; width: 15px; height: 15px; left: 3px; top: 3px; border-radius: 50%; background: var(--muted); transition: 160ms ease; }
+    .switch input:checked + .switch-track { background: rgb(215 255 98 / 0.17); border-color: rgb(215 255 98 / 0.46); }
+    .switch input:checked + .switch-track::after { transform: translateX(16px); background: var(--accent); }
+    .switch input:focus-visible + .switch-track { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+    .restore-fields { min-width: 0; margin: 0; padding: 0; border: 0; }
+    .restore-fields[disabled] { opacity: 0.38; }
+    .two-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+    details { margin-top: 4px; border-top: 1px solid var(--line); }
+    summary { padding: 15px 0 12px; cursor: pointer; color: var(--muted); font-size: 11px; user-select: none; }
+    .advanced-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+    .run-zone { margin-top: 18px; }
+    .run-button {
+      width: 100%;
+      min-height: 48px;
+      border: 0;
+      border-radius: 13px;
+      color: var(--accent-ink);
+      background: var(--accent);
+      cursor: pointer;
+      font-weight: 780;
+      box-shadow: 0 8px 30px rgb(215 255 98 / 0.12);
+    }
+
+    .run-help { min-height: 15px; margin: 8px 2px 0; color: var(--subtle); text-align: center; font-size: 10px; }
+
+    .result-card { display: none; margin-top: 18px; padding: 18px; }
+    .result-card.visible { display: block; }
+    .result-layout { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr); gap: 18px; }
+
+    .compare {
+      --split: 50%;
+      position: relative;
+      min-height: 420px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: #0b0c0a;
+    }
+
+    .compare img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+    .compare-output { clip-path: inset(0 calc(100% - var(--split)) 0 0); }
+    .compare-line { position: absolute; top: 0; bottom: 0; left: var(--split); width: 1px; background: var(--accent); box-shadow: 0 0 0 1px rgb(0 0 0 / 0.35); pointer-events: none; }
+    .compare-line::after { content: "↔"; position: absolute; top: 50%; left: 50%; width: 36px; height: 36px; display: grid; place-items: center; transform: translate(-50%, -50%); border-radius: 50%; color: var(--accent-ink); background: var(--accent); font-size: 14px; }
+    .compare input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; cursor: ew-resize; opacity: 0; }
+    .compare-label { position: absolute; top: 11px; z-index: 2; padding: 5px 8px; border-radius: 7px; background: rgb(0 0 0 / 0.55); color: #fff; font-size: 10px; pointer-events: none; }
+    .compare-label.before { left: 11px; }
+    .compare-label.after { right: 11px; }
+
+    .job-panel { display: flex; flex-direction: column; min-height: 420px; }
+    .job-state { padding: 14px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface-2); }
+    .job-state-row { display: flex; align-items: center; gap: 10px; }
+    .spinner { width: 16px; height: 16px; border: 2px solid var(--line-strong); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+    .spinner.done { animation: none; border-color: var(--good); background: var(--good); box-shadow: inset 0 0 0 4px var(--surface-2); }
+    .spinner.failed { animation: none; border-color: var(--bad); background: var(--bad); box-shadow: inset 0 0 0 4px var(--surface-2); }
+    .job-state strong { display: block; font-size: 12px; }
+    .job-state p { margin: 4px 0 0 26px; color: var(--muted); font-size: 10px; line-height: 1.5; }
+
+    .log-list { flex: 1; min-height: 130px; max-height: 220px; margin: 12px 0; padding: 2px 0; overflow: auto; list-style: none; }
+    .log-list li { display: grid; grid-template-columns: 50px 1fr; gap: 8px; padding: 5px 2px; color: var(--muted); font: 10px/1.45 ui-monospace, "SFMono-Regular", Menlo, monospace; }
+    .log-list time { color: var(--subtle); }
+
+    .output-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: auto; }
+    .output-button { min-height: 40px; border-radius: 10px; font-size: 11px; }
+    .output-button.primary { color: var(--accent-ink); border-color: var(--accent); background: var(--accent); font-weight: 720; }
+
+    .environment {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      margin-top: 16px;
+      padding: 0 4px;
+      color: var(--subtle);
+      font-size: 10px;
+    }
+
+    .checks { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
+    .check::before { content: "•"; margin-right: 5px; color: var(--good); }
+    .check.missing::before { color: var(--bad); }
+
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 25px;
+      z-index: 20;
+      max-width: 560px;
+      padding: 11px 15px;
+      border: 1px solid var(--line-strong);
+      border-radius: 11px;
+      color: var(--text);
+      background: rgb(31 34 29 / 0.96);
+      box-shadow: var(--shadow);
+      transform: translate(-50%, 18px);
+      opacity: 0;
+      pointer-events: none;
+      transition: 180ms ease;
+      font-size: 11px;
+    }
+    .toast.visible { transform: translate(-50%, 0); opacity: 1; }
+    .toast.error { border-color: rgb(255 141 133 / 0.45); }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    @media (max-width: 930px) {
+      .workspace, .result-layout { grid-template-columns: 1fr; }
+      .input-card, .settings-card { min-height: auto; }
+      .picker { min-height: 430px; }
+      .job-panel { min-height: 300px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">D</div>
+        <div class="brand-copy">
+          <h1>DeSynth Local Studio</h1>
+          <p>本机 WebKit 界面 · 图片不会离开这台 Mac</p>
+        </div>
+      </div>
+      <div class="top-actions">
+        <div class="status-chip" id="environmentStatus" role="status">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span id="environmentStatusText">正在检查环境</span>
+        </div>
+        <button class="quiet-button" id="quitButton" type="button">退出</button>
+      </div>
+    </header>
+
+    <main>
+      <div class="workspace">
+        <section class="card input-card" aria-labelledby="inputHeading">
+          <div class="section-heading">
+            <h2 id="inputHeading">输入图像</h2>
+            <span class="eyebrow">01 / Select</span>
+          </div>
+          <div class="picker" id="picker">
+            <div class="picker-empty" id="pickerEmpty">
+              <div class="picker-symbol" aria-hidden="true">+</div>
+              <strong>选择要处理的图片</strong>
+              <p>支持 PNG、JPEG、WebP、TIFF 等常见格式。原图只会由本机 Python 读取。</p>
+              <button class="secondary-button" id="selectButton" type="button">从 Finder 选择</button>
+            </div>
+            <div class="preview-wrap" id="inputPreviewWrap">
+              <img id="inputPreview" alt="输入图像预览">
+              <div class="preview-meta">
+                <div class="preview-copy">
+                  <span class="file-name" id="inputName"></span>
+                  <span class="file-facts" id="inputFacts"></span>
+                </div>
+                <button class="preview-change" id="changeButton" type="button">更换图片</button>
+              </div>
+            </div>
+          </div>
+          <div class="usage-note">
+            <input id="authorized" type="checkbox">
+            <label for="authorized">我确认这张图片属于研究、教育或已获授权的评估用途，不会用结果误导他人。</label>
+          </div>
+        </section>
+
+        <section class="card settings-card" aria-labelledby="settingsHeading">
+          <div class="section-heading">
+            <h2 id="settingsHeading">处理设置</h2>
+            <span class="eyebrow">02 / Tune</span>
+          </div>
+
+          <div class="preset-row" role="group" aria-label="恢复模式预设">
+            <button class="preset-button active" type="button" data-mode="gaussian" aria-pressed="true">平衡（推荐）<span>稳定的高频细节恢复</span></button>
+            <button class="preset-button" type="button" data-mode="edge" aria-pressed="false">边缘细节<span>轮廓区域保留更多细节</span></button>
+          </div>
+
+          <div class="field">
+            <div class="field-header">
+              <label for="denoise">降噪强度</label>
+              <span class="field-hint">默认 0.25</span>
+            </div>
+            <div class="range-row">
+              <input id="denoiseRange" type="range" min="0.05" max="1" step="0.01" value="0.25" aria-label="降噪强度滑杆">
+              <input id="denoise" type="number" min="0.05" max="1" step="0.01" value="0.25">
+            </div>
+          </div>
+
+          <div class="toggle-row">
+            <div class="toggle-copy">
+              <strong>恢复原图细节</strong>
+              <span>合成处理图的低频与原图的高频</span>
+            </div>
+            <label class="switch">
+              <input id="restore" type="checkbox" checked aria-label="恢复原图细节">
+              <span class="switch-track"></span>
+            </label>
+          </div>
+
+          <fieldset class="restore-fields" id="restoreFields">
+            <div class="two-fields">
+              <div class="field">
+                <div class="field-header"><label for="restoreMode">模式</label></div>
+                <select id="restoreMode">
+                  <option value="gaussian">Gaussian</option>
+                  <option value="edge">Edge</option>
+                </select>
+              </div>
+              <div class="field">
+                <div class="field-header"><label for="restoreSigma">Sigma</label></div>
+                <input id="restoreSigma" type="number" min="0.1" max="4" step="0.05" value="1.95">
+              </div>
+            </div>
+          </fieldset>
+
+          <details>
+            <summary>高级设置</summary>
+            <div class="advanced-grid">
+              <div class="field">
+                <div class="field-header"><label for="steps">采样步数</label></div>
+                <input id="steps" type="number" min="1" max="100" step="1" value="8">
+              </div>
+              <div class="field">
+                <div class="field-header"><label for="passes">处理轮数</label></div>
+                <input id="passes" type="number" min="1" max="8" step="1" value="1">
+              </div>
+              <div class="field">
+                <div class="field-header"><label for="unsharp">锐化</label></div>
+                <input id="unsharp" type="number" min="0" max="3" step="0.05" value="0">
+              </div>
+              <div class="field">
+                <div class="field-header"><label for="device">设备</label></div>
+                <select id="device">
+                  <option value="auto">自动（推荐）</option>
+                  <option value="mps">仅 MPS</option>
+                  <option value="cpu">仅 CPU</option>
+                </select>
+              </div>
+            </div>
+            <div class="field">
+              <div class="field-header">
+                <label for="seed">固定 Seed</label>
+                <span class="field-hint">留空则随机</span>
+              </div>
+              <input id="seed" type="text" inputmode="numeric" autocomplete="off" placeholder="随机生成">
+            </div>
+            <div class="toggle-row">
+              <div class="toggle-copy"><strong>保留中间图</strong><span>同时保存恢复细节前的输出</span></div>
+              <label class="switch">
+                <input id="keepIntermediate" type="checkbox" aria-label="保留中间图">
+                <span class="switch-track"></span>
+              </label>
+            </div>
+          </details>
+
+          <div class="run-zone">
+            <button class="run-button" id="runButton" type="button" disabled>开始处理</button>
+            <p class="run-help" id="runHelp">请先选择一张图片</p>
+          </div>
+        </section>
+      </div>
+
+      <section class="card result-card" id="resultCard" aria-labelledby="resultHeading">
+        <div class="section-heading">
+          <h2 id="resultHeading">处理结果</h2>
+          <span class="eyebrow">03 / Review</span>
+        </div>
+        <div class="result-layout">
+          <div class="compare" id="compare">
+            <img id="compareBefore" alt="处理前">
+            <img class="compare-output" id="compareAfter" alt="处理后">
+            <span class="compare-label before">原图</span>
+            <span class="compare-label after">结果</span>
+            <span class="compare-line" aria-hidden="true"></span>
+            <input id="compareSlider" type="range" min="0" max="100" value="50" aria-label="拖动比较处理前后图像">
+          </div>
+          <div class="job-panel">
+            <div class="job-state">
+              <div class="job-state-row">
+                <span class="spinner" id="jobSpinner" aria-hidden="true"></span>
+                <strong id="jobTitle">正在准备</strong>
+              </div>
+              <p id="jobMessage">正在把任务交给本机 MPS 流水线。</p>
+            </div>
+            <ol class="log-list" id="logList" aria-live="polite"></ol>
+            <div class="output-actions">
+              <button class="output-button primary" id="revealButton" type="button" disabled>在 Finder 中显示</button>
+              <button class="output-button" id="openButton" type="button" disabled>打开结果图</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="environment">
+      <span>无 HTTP 服务 · 无网络上传 · 模型常驻复用</span>
+      <div class="checks" id="environmentChecks"></div>
+    </footer>
+  </div>
+
+  <div class="toast" id="toast" role="alert"></div>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const $ = (id) => document.getElementById(id);
+      const bridge = window.webkit?.messageHandlers?.desynth;
+      const state = {
+        environmentReady: false,
+        input: null,
+        output: null,
+        running: false,
+        toastTimer: null,
+      };
+
+      const elements = {
+        environmentStatus: $("environmentStatus"),
+        environmentStatusText: $("environmentStatusText"),
+        environmentChecks: $("environmentChecks"),
+        pickerEmpty: $("pickerEmpty"),
+        inputPreviewWrap: $("inputPreviewWrap"),
+        inputPreview: $("inputPreview"),
+        inputName: $("inputName"),
+        inputFacts: $("inputFacts"),
+        authorized: $("authorized"),
+        runButton: $("runButton"),
+        runHelp: $("runHelp"),
+        resultCard: $("resultCard"),
+        compare: $("compare"),
+        compareBefore: $("compareBefore"),
+        compareAfter: $("compareAfter"),
+        compareSlider: $("compareSlider"),
+        jobSpinner: $("jobSpinner"),
+        jobTitle: $("jobTitle"),
+        jobMessage: $("jobMessage"),
+        logList: $("logList"),
+        revealButton: $("revealButton"),
+        openButton: $("openButton"),
+        restore: $("restore"),
+        restoreFields: $("restoreFields"),
+        restoreMode: $("restoreMode"),
+        denoise: $("denoise"),
+        denoiseRange: $("denoiseRange"),
+        toast: $("toast"),
+      };
+
+      function post(action, payload = {}) {
+        if (!bridge) {
+          showToast("请通过“DeSynth Web UI.command”启动此页面。", true);
+          return;
+        }
+        bridge.postMessage({ action, ...payload });
+      }
+
+      function formatBytes(bytes) {
+        if (!Number.isFinite(bytes)) return "";
+        if (bytes < 1024) return `${bytes} B`;
+        if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
+        return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+      }
+
+      function nowLabel() {
+        return new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date());
+      }
+
+      function showToast(message, isError = false) {
+        clearTimeout(state.toastTimer);
+        elements.toast.textContent = message;
+        elements.toast.classList.toggle("error", isError);
+        elements.toast.classList.add("visible");
+        state.toastTimer = setTimeout(() => elements.toast.classList.remove("visible"), 3600);
+      }
+
+      function appendLog(message) {
+        const item = document.createElement("li");
+        const time = document.createElement("time");
+        const copy = document.createElement("span");
+        time.textContent = nowLabel();
+        copy.textContent = message;
+        item.append(time, copy);
+        elements.logList.append(item);
+        while (elements.logList.children.length > 30) elements.logList.firstElementChild.remove();
+        elements.logList.scrollTop = elements.logList.scrollHeight;
+      }
+
+      function updateRunState() {
+        let reason = "";
+        if (!bridge) reason = "请使用项目中的启动器打开";
+        else if (!state.environmentReady) reason = "运行环境尚未就绪";
+        else if (!state.input) reason = "请先选择一张图片";
+        else if (state.running) reason = "任务正在运行";
+        else if (!elements.authorized.checked) reason = "请确认授权用途";
+        elements.runButton.disabled = Boolean(reason);
+        elements.runHelp.textContent = reason || "首次运行会加载模型，后续任务将复用它";
+      }
+
+      function setRunning(running) {
+        state.running = running;
+        document.querySelectorAll(".settings-card input, .settings-card select, .settings-card button").forEach((control) => {
+          if (control !== elements.runButton) control.disabled = running;
+        });
+        $("selectButton").disabled = running;
+        $("changeButton").disabled = running;
+        elements.authorized.disabled = running;
+        updateRunState();
+      }
+
+      function setJobState(kind, title, message) {
+        elements.jobSpinner.className = `spinner${kind === "done" ? " done" : kind === "failed" ? " failed" : ""}`;
+        elements.jobTitle.textContent = title;
+        elements.jobMessage.textContent = message;
+      }
+
+      function selectPreset(mode) {
+        elements.restoreMode.value = mode;
+        document.querySelectorAll("[data-mode]").forEach((button) => {
+          const active = button.dataset.mode === mode;
+          button.classList.toggle("active", active);
+          button.setAttribute("aria-pressed", String(active));
+        });
+      }
+
+      function numberValue(id) {
+        const value = Number($(id).value);
+        if (!Number.isFinite(value)) throw new Error(`${id} 不是有效数字`);
+        return value;
+      }
+
+      function collectSettings() {
+        const seedText = $("seed").value.trim();
+        if (seedText && !/^\d+$/.test(seedText)) throw new Error("Seed 只能包含数字");
+        const restore = elements.restore.checked;
+        return {
+          denoise: numberValue("denoise"),
+          steps: numberValue("steps"),
+          passes: numberValue("passes"),
+          restore,
+          restoreMode: restore ? elements.restoreMode.value : "gaussian",
+          restoreSigma: restore ? numberValue("restoreSigma") : 1.95,
+          unsharp: restore ? numberValue("unsharp") : 0,
+          keepIntermediate: $("keepIntermediate").checked,
+          device: $("device").value,
+          seed: seedText || null,
+          authorized: elements.authorized.checked,
+        };
+      }
+
+      function handleEnvironment(event) {
+        state.environmentReady = Boolean(event.ready);
+        elements.environmentStatus.classList.toggle("ready", state.environmentReady);
+        elements.environmentStatus.classList.toggle("error", !state.environmentReady);
+        elements.environmentStatusText.textContent = state.environmentReady ? "环境就绪" : "环境不完整";
+        elements.environmentChecks.replaceChildren();
+        (event.checks || []).forEach((check) => {
+          const item = document.createElement("span");
+          item.className = `check${check.ok ? "" : " missing"}`;
+          item.textContent = check.label;
+          item.title = check.ok ? "已找到" : "缺失";
+          elements.environmentChecks.append(item);
+        });
+        if (!state.environmentReady && event.message) showToast(event.message, true);
+        updateRunState();
+      }
+
+      function handleInput(event) {
+        state.input = event;
+        state.output = null;
+        elements.authorized.checked = false;
+        elements.compareAfter.removeAttribute("src");
+        elements.revealButton.disabled = true;
+        elements.openButton.disabled = true;
+        elements.inputPreview.src = event.preview;
+        elements.compareBefore.src = event.preview;
+        elements.inputName.textContent = event.name;
+        elements.inputFacts.textContent = `${event.width}×${event.height} · ${formatBytes(event.size)}`;
+        elements.pickerEmpty.hidden = true;
+        elements.inputPreviewWrap.classList.add("visible");
+        elements.resultCard.classList.remove("visible");
+        updateRunState();
+      }
+
+      function handleComplete(event) {
+        setRunning(false);
+        const output = (event.outputs || []).find((item) => item.kind === "result") || event.outputs?.[0];
+        state.output = output || null;
+        setJobState("done", "处理完成", output ? `${output.name} 已保存到 out 文件夹。` : "输出已保存。");
+        appendLog(`完成 · Seed ${event.seed}`);
+        if (output) {
+          if (output.preview) elements.compareAfter.src = output.preview;
+          elements.revealButton.disabled = false;
+          elements.openButton.disabled = false;
+        }
+        showToast("处理完成，结果已保存到 out 文件夹。");
+      }
+
+      function handleEvent(event) {
+        switch (event.type) {
+          case "environment":
+            handleEnvironment(event);
+            break;
+          case "inputSelected":
+            handleInput(event);
+            break;
+          case "state":
+            elements.resultCard.classList.add("visible");
+            setJobState("running", event.title || "正在处理", event.message || "");
+            if (event.message) appendLog(event.message);
+            break;
+          case "log":
+            appendLog(event.message || "");
+            break;
+          case "complete":
+            handleComplete(event);
+            break;
+          case "error":
+            setRunning(false);
+            elements.resultCard.classList.add("visible");
+            setJobState("failed", "处理失败", event.message || "发生未知错误");
+            appendLog(`错误 · ${event.message || "未知错误"}`);
+            showToast(event.message || "处理失败", true);
+            break;
+          case "notice":
+            showToast(event.message || "");
+            break;
+          default:
+            break;
+        }
+      }
+
+      window.desynthApp = { handleNativeEvent: handleEvent };
+
+      $("selectButton").addEventListener("click", () => post("selectInput"));
+      $("changeButton").addEventListener("click", () => post("selectInput"));
+      $("quitButton").addEventListener("click", () => post("quit"));
+      elements.authorized.addEventListener("change", updateRunState);
+
+      document.querySelectorAll("[data-mode]").forEach((button) => {
+        button.addEventListener("click", () => selectPreset(button.dataset.mode));
+      });
+      elements.restoreMode.addEventListener("change", () => selectPreset(elements.restoreMode.value));
+      elements.restore.addEventListener("change", () => {
+        elements.restoreFields.disabled = !elements.restore.checked;
+      });
+
+      elements.denoiseRange.addEventListener("input", () => { elements.denoise.value = elements.denoiseRange.value; });
+      elements.denoise.addEventListener("input", () => {
+        const value = Number(elements.denoise.value);
+        if (Number.isFinite(value)) elements.denoiseRange.value = String(Math.min(1, Math.max(0.05, value)));
+      });
+
+      elements.compareSlider.addEventListener("input", () => {
+        elements.compare.style.setProperty("--split", `${elements.compareSlider.value}%`);
+      });
+
+      elements.runButton.addEventListener("click", () => {
+        try {
+          const settings = collectSettings();
+          state.output = null;
+          elements.logList.replaceChildren();
+          elements.compareAfter.removeAttribute("src");
+          elements.revealButton.disabled = true;
+          elements.openButton.disabled = true;
+          elements.resultCard.classList.add("visible");
+          setJobState("running", "正在准备", "正在启动本机处理流水线。");
+          appendLog("任务已提交");
+          setRunning(true);
+          post("run", { settings });
+          elements.resultCard.scrollIntoView({ behavior: "smooth", block: "start" });
+        } catch (error) {
+          showToast(error.message, true);
+        }
+      });
+
+      elements.revealButton.addEventListener("click", () => state.output && post("revealOutput", { path: state.output.path }));
+      elements.openButton.addEventListener("click", () => state.output && post("openOutput", { path: state.output.path }));
+
+      if (bridge) {
+        post("ready");
+      } else {
+        handleEnvironment({
+          type: "environment",
+          ready: false,
+          checks: [],
+          message: "这个 HTML 需要通过项目中的 DeSynth Web UI.command 打开，普通浏览器无法调用本机 Python。",
+        });
+      }
+    })();
+  </script>
+</body>
+</html>
