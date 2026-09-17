@@ -83,6 +83,22 @@ python desynth.py original.png
 python desynth.py path/to/image.png
 ```
 
+### Local Web UI (macOS)
+
+For a graphical workflow, double-click `DeSynth Web UI.command` in Finder.
+The first launch compiles a small native WebKit wrapper, then opens a local
+window where you can select an image, tune the common options, run the pipeline,
+compare the result, and reveal it in Finder.
+
+The UI does not start an HTTP server, upload images, or add a web framework.
+It talks to a persistent Python worker over local standard input/output, so the
+large model stays loaded for subsequent runs while the window remains open.
+Close the window or choose **Exit** to stop the worker and release the model.
+The one-time wrapper build uses the Xcode Command Line Tools already present on
+most developer Macs; it does not install any packages.
+
+The command-line interface remains available for automation and advanced use.
+
 The default device mode is `auto`. On an Apple Silicon Mac, startup should
 include:
 
